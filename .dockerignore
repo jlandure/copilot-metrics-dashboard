@@ -1,0 +1,100 @@
+# ===========================================
+# Dépendances et builds
+# ===========================================
+node_modules
+dist
+dist-ssr
+.output
+.nuxt
+
+# ===========================================
+# Git
+# ===========================================
+.git
+.gitignore
+.gitattributes
+
+# ===========================================
+# IDE et éditeurs
+# ===========================================
+.vscode
+.idea
+*.swp
+*.swo
+*.swn
+*.sublime-workspace
+*.sublime-project
+
+# ===========================================
+# Logs et debug
+# ===========================================
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===========================================
+# Tests
+# ===========================================
+coverage
+.nyc_output
+cypress/videos
+cypress/screenshots
+__tests__
+__mocks__
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+vitest.config.*
+jest.config.*
+
+# ===========================================
+# Documentation
+# ===========================================
+*.md
+docs
+LICENSE
+
+# ===========================================
+# Docker (éviter la récursion)
+# ===========================================
+Dockerfile*
+docker-compose*
+.docker
+
+# ===========================================
+# CI/CD
+# ===========================================
+.github
+.gitlab-ci.yml
+.travis.yml
+.circleci
+Jenkinsfile
+
+# ===========================================
+# Environnement et secrets
+# ===========================================
+.env
+.env.*
+!.env.example
+*.local
+.secrets
+
+# ===========================================
+# OS
+# ===========================================
+.DS_Store
+Thumbs.db
+*.pem
+
+# ===========================================
+# Cache et temporaires
+# ===========================================
+.cache
+.temp
+.tmp
+*.tsbuildinfo
+.eslintcache
