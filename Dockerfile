@@ -19,7 +19,7 @@ COPY . .
 RUN npm run build
 
 # =====================================================
-# Stage 2: Production avec nginx
+# Stage 2: Production with nginx
 # =====================================================
 FROM nginx:1.27-alpine AS production
 
