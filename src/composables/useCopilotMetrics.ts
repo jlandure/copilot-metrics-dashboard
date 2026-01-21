@@ -67,7 +67,7 @@ export function useCopilotMetrics() {
     try {
       parseMetricsFromText(text)
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Erreur lors du parsing des données'
+      error.value = e instanceof Error ? e.message : 'Error parsing data'
       console.error('Error parsing metrics:', e)
     } finally {
       loading.value = false
@@ -79,14 +79,14 @@ export function useCopilotMetrics() {
     const lines = text.trim().split('\n').filter((line) => line.trim())
 
     if (lines.length === 0) {
-      throw new Error('Le fichier est vide')
+      throw new Error('The file is empty')
     }
 
     const parsedMetrics = lines.map((line, index) => {
       try {
         return JSON.parse(line) as CopilotMetric
       } catch {
-        throw new Error(`Erreur de parsing à la ligne ${index + 1}`)
+        throw new Error(`Parsing error at line ${index + 1}`)
       }
     })
 
