@@ -57,6 +57,18 @@ export interface TotalsByLanguageModel {
   loc_deleted_sum: number
 }
 
+export interface TotalsByModelFeature {
+  model: string
+  feature: string
+  user_initiated_interaction_count: number
+  code_generation_activity_count: number
+  code_acceptance_activity_count: number
+  loc_suggested_to_add_sum: number
+  loc_suggested_to_delete_sum: number
+  loc_added_sum: number
+  loc_deleted_sum: number
+}
+
 export interface CopilotMetric {
   report_start_day: string
   report_end_day: string
@@ -71,6 +83,9 @@ export interface CopilotMetric {
   totals_by_feature: TotalsByFeature[]
   totals_by_language_feature: TotalsByLanguageFeature[]
   totals_by_language_model?: TotalsByLanguageModel[]
+  totals_by_model_feature?: TotalsByModelFeature[]
+  used_agent?: boolean
+  used_chat?: boolean
 }
 
 // Aggregated types for dashboard display

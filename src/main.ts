@@ -21,6 +21,7 @@ import TabView from 'primevue/tabview'
 import TabPanel from 'primevue/tabpanel'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
+import Dialog from 'primevue/dialog'
 
 const app = createApp(App)
 
@@ -49,5 +50,6 @@ app.component('TabView', TabView)
 app.component('TabPanel', TabPanel)
 app.component('IconField', IconField)
 app.component('InputIcon', InputIcon)
+app.component('Dialog', Dialog)
 
 app.mount('#app')

@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCopilotMetrics } from '@/composables/useCopilotMetrics'
 import UsageLineChart from '@/components/charts/UsageLineChart.vue'
 import LanguageBarChart from '@/components/charts/LanguageBarChart.vue'
+import PremiumRequestsCard from '@/components/PremiumRequestsCard.vue'
+import PremiumSettingsDialog from '@/components/PremiumSettingsDialog.vue'
 import type { DailyMetrics, LanguageMetrics } from '@/types/copilot'
+
+const settingsOpen = ref(false)
 
 const route = useRoute()
 const router = useRouter()
@@ -234,6 +238,14 @@ function getAcceptanceRateColor(rate: number): string {
         </div>
       </div>
 
+      <!-- Premium Requests -->
+      <div style="margin-bottom: 1.5rem">
+        <PremiumRequestsCard
+          :user-login="userLogin"
+          @open-settings="settingsOpen = true"
+        />
+      </div>
+
       <!-- Charts -->
       <div class="charts-grid">
         <!-- Daily Activity -->
@@ -316,6 +328,8 @@ function getAcceptanceRateColor(rate: number): string {
         </DataTable>
       </div>
     </template>
+
+    <PremiumSettingsDialog v-model:visible="settingsOpen" />
   </div>
 </template>
 
