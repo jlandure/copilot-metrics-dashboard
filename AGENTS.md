@@ -21,16 +21,25 @@ This document provides instructions for AI agents working on this project.
 ### File Structure
 
 ```
-utech-stats-github/
+copilot-metrics-dashboard/
 ├── src/
-│   ├── components/          # Vue components (Single File Components)
-│   │   └── charts/          # Encapsulated charts
-│   ├── composables/         # Reusable hooks (useXxx)
-│   ├── types/               # TypeScript definitions
-│   ├── views/               # Pages/Views
-│   └── router/              # Router configuration
-├── public/                  # Static assets
-└── dist/                    # Production build
+│   ├── components/                        # Vue components (Single File Components)
+│   │   ├── charts/                        # Encapsulated charts
+│   │   ├── PremiumRequestsCard.vue        # Per-user premium requests card
+│   │   ├── PremiumSettingsDialog.vue      # Plan & multiplier settings dialog
+│   │   └── PremiumTopConsumersCard.vue    # Dashboard top consumers card
+│   ├── composables/                       # Reusable hooks (useXxx)
+│   │   ├── usePremiumRequests.ts          # Premium request usage computation
+│   │   └── usePremiumSettings.ts          # Plan & multiplier settings (localStorage)
+│   ├── constants/
+│   │   └── premiumModels.ts              # Model registry with multipliers & plan quotas
+│   ├── types/                             # TypeScript definitions
+│   │   ├── copilot.ts                    # Copilot metrics interfaces
+│   │   └── premium.ts                    # Premium request types
+│   ├── views/                             # Pages/Views
+│   └── router/                            # Router configuration
+├── public/                                # Static assets
+└── dist/                                  # Production build
 ```
 
 ## 🎯 Code Conventions
@@ -74,11 +83,19 @@ utech-stats-github/
 
 Types are defined in `src/types/copilot.ts`:
 
-- **`CopilotMetric`** - Raw data for one day per user
+- **`CopilotMetric`** - Raw data for one day per user (includes `totals_by_model_feature`)
 - **`UserSummary`** - Aggregation per user
 - **`DailyMetrics`** - Aggregation per day
 - **`GlobalStats`** - Global statistics
 - **`FeatureMetrics`** / `IdeMetrics` / `LanguageMetrics` - Metrics by dimension
+
+Premium types are defined in `src/types/premium.ts`:
+
+- **`ModelMultiplier`** - A model entry with `current` and `new` multipliers
+- **`PremiumSettings`** - Plan, multiplier version, period mode and per-model overrides
+- **`UserPremiumUsage`** - Aggregated premium request usage for one user
+- **`PremiumModelUsage`** - Per-model breakdown (interactions × multiplier)
+- **`PremiumTier`** / `PremiumTierId` - Quota consumption tiers (0–30%, 30–60%, …, +100%)
 
 ### Input Data Format
 
@@ -101,11 +118,50 @@ The dashboard consumes **NDJSON** (Newline Delimited JSON) files. Each line is a
 3. Use `ref()`, `computed()`, `watch()` from Vue
 4. Document parameters and return values
 
+### Adding a New Model to the Premium Registry
+
+1. Open `src/constants/premiumModels.ts`
+2. Add an entry to `MODEL_REGISTRY` with `id`, `displayName`, `aliases` (lowercased), `current` multiplier, and `new` multiplier
+3. The alias index is rebuilt automatically at startup via `buildAliasIndex()`
+
 ### Modifying Global Styles
 
 1. Edit `src/assets/main.css`
 2. Use existing CSS variables (`--color-*`, `--radius-*`, etc.)
 3. Test in dark mode
+
+## 💎 Premium Requests Feature
+
+### Overview
+
+The premium requests feature estimates how many GitHub Copilot **premium requests** each user consumes, based on their per-model interaction counts from the NDJSON data.
+
+### Data flow
+
+```
+CopilotMetric.totals_by_model_feature
+  └─► usePremiumRequests (aggregates by user & model)
+        ├─► MODEL_REGISTRY + alias index (maps raw model name → multiplier)
+        ├─► usePremiumSettings (plan quota, multiplier version, period mode, overrides)
+        └─► UserPremiumUsage[] (sorted by premium_requests desc)
+              ├─► PremiumTopConsumersCard  (dashboard view)
+              ├─► PremiumRequestsCard      (user detail view)
+              └─► PremiumDistributionChart (tier doughnut chart)
+```
+
+### Key concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Multiplier** | Factor applied to interactions to get premium requests (`interactions × multiplier`) |
+| **Period mode** | `all` = use all loaded data, project to 30 days; `current_month` = filter to current calendar month, project to end of month |
+| **Plan quota** | Monthly premium request allowance per user (varies by Copilot plan) |
+| **Overrides** | Per-model user-defined multipliers stored in `localStorage`, taking priority over registry defaults |
+| **Unknown model** | Any model not in `MODEL_REGISTRY` (e.g. `auto`) is grouped and assigned a configurable fallback multiplier |
+
+### Settings persistence
+
+`usePremiumSettings` stores all settings in `localStorage` under key `copilot-premium-settings-v1`. Settings merge on load so new fields added to `defaultSettings()` are picked up without breaking existing data.
 
 ## 🐳 Docker and Deployment
 

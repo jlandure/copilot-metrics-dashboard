@@ -15,6 +15,7 @@
 - **💬 Feature Metrics** - Chat, Agent, Completions
 - **🌐 Top Languages** - Most used programming languages
 - **📁 Data Import** - Load NDJSON files exported from GitHub
+- **💎 Premium Requests Estimation** - Estimate premium request consumption per user by model, compare against plan quota, and project monthly usage
 
 ## 🖼️ Preview
 
@@ -24,6 +25,8 @@ The dashboard displays:
 - **Time Series Charts** - Evolution of active users and daily activity
 - **Distribution Charts** - Breakdown by feature and IDE
 - **Users Table** - Complete list with individual metrics and navigation to details
+- **Premium Requests Card** - Top consumers ranked by estimated premium usage with quota bar
+- **Premium Distribution Chart** - Doughnut chart distributing users across consumption tiers
 
 ## 🚀 Quick Start
 
@@ -79,32 +82,41 @@ The Docker image is optimized for Google Cloud Run with:
 ## 📂 Project Structure
 
 ```
-utech-stats-github/
+copilot-metrics-dashboard/
 ├── src/
-│   ├── components/          # Reusable Vue components
-│   │   ├── charts/          # Chart.js charts
+│   ├── components/                        # Reusable Vue components
+│   │   ├── charts/                        # Chart.js charts
 │   │   │   ├── FeatureDoughnutChart.vue
 │   │   │   ├── IdeBarChart.vue
 │   │   │   ├── LanguageBarChart.vue
+│   │   │   ├── PremiumDistributionChart.vue  # Tier distribution doughnut
 │   │   │   └── UsageLineChart.vue
-│   │   ├── FileUpload.vue   # NDJSON file upload
-│   │   ├── StatsCards.vue   # Statistics cards
-│   │   └── UsersTable.vue   # Users table
-│   ├── composables/         # Reusable logic (Composition API)
-│   │   ├── useChartData.ts  # Chart configuration
-│   │   └── useCopilotMetrics.ts  # Metrics parsing and aggregation
-│   ├── types/               # TypeScript types
-│   │   └── copilot.ts       # Interfaces for Copilot metrics
-│   ├── views/               # Application pages
+│   │   ├── FileUpload.vue                 # NDJSON file upload
+│   │   ├── PremiumRequestsCard.vue        # Per-user premium requests card
+│   │   ├── PremiumSettingsDialog.vue      # Plan & multiplier settings dialog
+│   │   ├── PremiumTopConsumersCard.vue    # Dashboard top consumers card
+│   │   ├── StatsCards.vue                # Statistics cards
+│   │   └── UsersTable.vue                # Users table
+│   ├── composables/                       # Reusable logic (Composition API)
+│   │   ├── useChartData.ts               # Chart configuration
+│   │   ├── useCopilotMetrics.ts          # Metrics parsing and aggregation
+│   │   ├── usePremiumRequests.ts         # Premium request usage computation
+│   │   └── usePremiumSettings.ts         # Plan & multiplier settings (localStorage)
+│   ├── constants/
+│   │   └── premiumModels.ts             # Model registry with multipliers & plan quotas
+│   ├── types/                            # TypeScript types
+│   │   ├── copilot.ts                   # Interfaces for Copilot metrics
+│   │   └── premium.ts                   # Premium request types
+│   ├── views/                            # Application pages
 │   │   ├── DashboardView.vue
 │   │   └── UserDetailView.vue
-│   ├── router/              # Vue Router configuration
-│   ├── App.vue              # Root component
-│   └── main.ts              # Entry point
+│   ├── router/                           # Vue Router configuration
+│   ├── App.vue                           # Root component
+│   └── main.ts                           # Entry point
 ├── public/
-│   └── data/                # Demo data
-├── Dockerfile               # Multi-stage Docker image
-├── nginx.conf               # Nginx configuration
+│   └── data/                             # Demo data
+├── Dockerfile                            # Multi-stage Docker image
+├── nginx.conf                            # Nginx configuration
 └── package.json
 ```
 
@@ -125,6 +137,28 @@ The dashboard accepts **NDJSON** (Newline Delimited JSON) files exported from th
   "totals_by_language_feature": [...]
 }
 ```
+
+## 💎 Premium Requests Estimation
+
+The dashboard estimates each user's **premium request** consumption by multiplying their chat/agent interactions per model by the model's published GitHub multiplier.
+
+### How it works
+
+1. Load your NDJSON file — the dashboard reads the `totals_by_model_feature` field from each row.
+2. Select your **Copilot plan** (Free / Pro / Pro+ / Business / Enterprise / Custom quota) in the settings dialog.
+3. Choose a **multiplier version**: current rates vs. the upcoming rate schedule announced by GitHub.
+4. Choose a **period mode**:
+   - *All data* — uses every row and projects to a 30-day canonical month.
+   - *Current month only* — filters to the current calendar month and projects to its end, matching GitHub's billing cycle.
+5. The dashboard projects consumption to the full target window and compares it against the plan's monthly quota.
+
+### Supported models
+
+The model registry (`src/constants/premiumModels.ts`) covers: Claude Haiku / Sonnet / Opus (4.x–4.7), Gemini 2.5–3.1, GPT-4o / 4.1 / 5.x, GPT-5 Codex variants, Grok Code Fast, Raptor mini. Models not in the registry are grouped under a configurable fallback multiplier.
+
+### Settings persistence
+
+All settings (plan, multiplier version, period mode, per-model overrides) are saved automatically in `localStorage` so they persist across page reloads.
 
 ## 🛠️ Tech Stack
 
