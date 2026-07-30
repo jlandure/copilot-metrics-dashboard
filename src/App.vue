@@ -15,12 +15,18 @@ import { RouterLink, RouterView } from 'vue-router'
       </RouterLink>
 
       <div class="app-header-actions">
+        <RouterLink to="/" class="header-nav-link" active-class="active" exact-active-class="active">
+          Dashboard
+        </RouterLink>
+        <RouterLink to="/billing" class="header-nav-link" active-class="active">
+          Billing usage
+        </RouterLink>
         <a
           href="https://github.com"
           target="_blank"
           rel="noopener noreferrer"
           class="header-link"
-          title="Open Source sur GitHub"
+          title="Open Source on GitHub"
         >
           <svg viewBox="0 0 16 16" fill="currentColor" width="20" height="20">
             <path
@@ -41,7 +47,27 @@ import { RouterLink, RouterView } from 'vue-router'
 .app-header-actions {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.625rem;
+}
+
+.header-nav-link {
+  padding: 0.375rem 0.75rem;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.header-nav-link:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-tertiary);
+}
+
+.header-nav-link.active {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-tertiary);
 }
 
 .header-link {
