@@ -25,17 +25,16 @@ copilot-metrics-dashboard/
 ├── src/
 │   ├── components/                        # Vue components (Single File Components)
 │   │   ├── charts/                        # Encapsulated charts
-│   │   ├── PremiumRequestsCard.vue        # Per-user premium requests card
-│   │   ├── PremiumSettingsDialog.vue      # Plan & multiplier settings dialog
-│   │   └── PremiumTopConsumersCard.vue    # Dashboard top consumers card
+│   │   └── aiusage/                       # AI-usage (credits & cost) view
+│   │       ├── AiUsageCreditsCards.vue    # Included credits gauge + additional usage
+│   │       └── AiUsageTrendChart.vue      # Daily cost chart (group by models/users)
 │   ├── composables/                       # Reusable hooks (useXxx)
-│   │   ├── usePremiumRequests.ts          # Premium request usage computation
-│   │   └── usePremiumSettings.ts          # Plan & multiplier settings (localStorage)
+│   │   └── useAiCreditsEstimate.ts        # AI-credit cost estimation (NDJSON)
 │   ├── constants/
-│   │   └── premiumModels.ts              # Model registry with multipliers & plan quotas
+│   │   └── premiumModels.ts              # Model registry (AI-credit multipliers)
 │   ├── types/                             # TypeScript definitions
 │   │   ├── copilot.ts                    # Copilot metrics interfaces
-│   │   └── premium.ts                    # Premium request types
+│   │   └── premium.ts                    # Model registry types
 │   ├── views/                             # Pages/Views
 │   └── router/                            # Router configuration
 ├── public/                                # Static assets
@@ -43,6 +42,23 @@ copilot-metrics-dashboard/
 ```
 
 ## 🎯 Code Conventions
+
+### UI Language
+
+**All user-facing strings (labels, buttons, tooltips, error messages, table
+headers, chart legends, etc.) MUST be written in English.** This includes:
+
+- Component templates (`<template>` content)
+- Tooltip and `title` attributes
+- Toast / error / loading messages
+- Empty states and placeholders
+- Chart axis labels and dataset names
+- Code comments may stay in any language, but UI text is always English
+
+Reasoning: this dashboard is consumed by international audiences; UI consistency
+matters more than dev convenience. Use `Intl.NumberFormat('en-US', ...)` and
+`toLocaleDateString('en-US', ...)` for number/date formatting unless a specific
+locale override is requested.
 
 ### Vue.js
 
@@ -89,13 +105,18 @@ Types are defined in `src/types/copilot.ts`:
 - **`GlobalStats`** - Global statistics
 - **`FeatureMetrics`** / `IdeMetrics` / `LanguageMetrics` - Metrics by dimension
 
-Premium types are defined in `src/types/premium.ts`:
+Model registry types are defined in `src/types/premium.ts`:
 
-- **`ModelMultiplier`** - A model entry with `current` and `new` multipliers
-- **`PremiumSettings`** - Plan, multiplier version, period mode and per-model overrides
-- **`UserPremiumUsage`** - Aggregated premium request usage for one user
-- **`PremiumModelUsage`** - Per-model breakdown (interactions × multiplier)
-- **`PremiumTier`** / `PremiumTierId` - Quota consumption tiers (0–30%, 30–60%, …, +100%)
+- **`ModelMultiplier`** - A model entry with `current` / `new` multipliers and
+  published token prices. The `new` value is the AI-credit multiplier used by
+  the AI-usage estimation.
+
+AI-usage row shapes are defined in `src/composables/useAiCreditsEstimate.ts`:
+
+- **`AiCreditsUserRow`** - Per-user credits, cost, included/overage credits and
+  per-model breakdown
+- **`AiCreditsModelRow`** - Per-model interactions, credits and cost
+- **`AiCreditsTotals`** - Account totals (credits, cost, quota, overage)
 
 ### Input Data Format
 
@@ -118,10 +139,10 @@ The dashboard consumes **NDJSON** (Newline Delimited JSON) files. Each line is a
 3. Use `ref()`, `computed()`, `watch()` from Vue
 4. Document parameters and return values
 
-### Adding a New Model to the Premium Registry
+### Adding a New Model to the Registry
 
 1. Open `src/constants/premiumModels.ts`
-2. Add an entry to `MODEL_REGISTRY` with `id`, `displayName`, `aliases` (lowercased), `current` multiplier, and `new` multiplier
+2. Add an entry to `MODEL_REGISTRY` with `id`, `displayName`, `aliases` (lowercased), `current` multiplier, `new` (AI-credit) multiplier, and token prices
 3. The alias index is rebuilt automatically at startup via `buildAliasIndex()`
 
 ### Modifying Global Styles
@@ -130,38 +151,46 @@ The dashboard consumes **NDJSON** (Newline Delimited JSON) files. Each line is a
 2. Use existing CSS variables (`--color-*`, `--radius-*`, etc.)
 3. Test in dark mode
 
-## 💎 Premium Requests Feature
+## 💳 AI Usage Feature (credits & cost)
 
 ### Overview
 
-The premium requests feature estimates how many GitHub Copilot **premium requests** each user consumes, based on their per-model interaction counts from the NDJSON data.
+Since the usage-based pricing model (active June 1 2026), GitHub bills Copilot
+in **AI credits** (1 AI credit = $0.01). Newer NDJSON exports include official
+`ai_credits_used` per day/user. The dashboard prefers that field and falls back
+to an interaction × multiplier estimate for older exports. There is no separate
+premium-requests view anymore.
 
 ### Data flow
 
 ```
-CopilotMetric.totals_by_model_feature
-  └─► usePremiumRequests (aggregates by user & model)
-        ├─► MODEL_REGISTRY + alias index (maps raw model name → multiplier)
-        ├─► usePremiumSettings (plan quota, multiplier version, period mode, overrides)
-        └─► UserPremiumUsage[] (sorted by premium_requests desc)
-              ├─► PremiumTopConsumersCard  (dashboard view)
-              ├─► PremiumRequestsCard      (user detail view)
-              └─► PremiumDistributionChart (tier doughnut chart)
+CopilotMetric (NDJSON)
+  ├─ ai_credits_used, loc_*_sum, ai_adoption_phase
+  └─ totals_by_model_feature (fallback estimate + model activity)
+       ├─► useAiCreditsEstimate → cards, trend (by user), table
+       └─► useCopilotMetrics → KPIs, dailyMetrics, adoptionMetrics
+            ├─► AdoptionPhaseChart / LocProductivityChart
+            └─► UsersTable / UserDetailView
 ```
 
 ### Key concepts
 
 | Concept | Description |
 |---------|-------------|
-| **Multiplier** | Factor applied to interactions to get premium requests (`interactions × multiplier`) |
-| **Period mode** | `all` = use all loaded data, project to 30 days; `current_month` = filter to current calendar month, project to end of month |
-| **Plan quota** | Monthly premium request allowance per user (varies by Copilot plan) |
-| **Overrides** | Per-model user-defined multipliers stored in `localStorage`, taking priority over registry defaults |
-| **Unknown model** | Any model not in `MODEL_REGISTRY` (e.g. `auto`) is grouped and assigned a configurable fallback multiplier |
+| **Official AI credits** | `ai_credits_used` on each NDJSON row (source of truth when present) |
+| **Fallback estimate** | `credits = interactions × MODEL_REGISTRY.new` for older exports |
+| **Cost** | `cost = credits × $0.01` (`AI_CREDIT_USD`) |
+| **Plan quota** | Monthly AI credits per user (`AI_CREDITS_PLANS`, Business/Enterprise, with promo) |
+| **Included vs additional** | Credits within `userCount × creditsPerUser` are "included"; the rest is overage |
+| **Adoption phase** | `ai_adoption_phase` cohort (Phase 1/2/3 / No Cohort) |
+| **Group by** | Trend chart groups by user when official credits are present |
 
-### Settings persistence
+### Notes
 
-`usePremiumSettings` stores all settings in `localStorage` under key `copilot-premium-settings-v1`. Settings merge on load so new fields added to `defaultSettings()` are picked up without breaking existing data.
+- Official credits are not broken down by model; per-model cost remains an
+  interaction-based estimate.
+- Settings (plan, promo toggle, unknown multiplier) are module-level refs in
+  `useAiCreditsEstimate`, so every component stays in sync without prop drilling.
 
 ## 🐳 Docker and Deployment
 
