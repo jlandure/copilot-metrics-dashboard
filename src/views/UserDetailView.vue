@@ -1,21 +1,29 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCopilotMetrics } from '@/composables/useCopilotMetrics'
 import UsageLineChart from '@/components/charts/UsageLineChart.vue'
 import LanguageBarChart from '@/components/charts/LanguageBarChart.vue'
-import PremiumRequestsCard from '@/components/PremiumRequestsCard.vue'
-import PremiumSettingsDialog from '@/components/PremiumSettingsDialog.vue'
+import { useAiCreditsEstimate } from '@/composables/useAiCreditsEstimate'
 import type { DailyMetrics, LanguageMetrics } from '@/types/copilot'
-
-const settingsOpen = ref(false)
 
 const route = useRoute()
 const router = useRouter()
-const { loading, isDataLoaded, getUserMetrics, usersSummary } = useCopilotMetrics()
+const { loading, isDataLoaded, metrics, usersSummary } = useCopilotMetrics()
+const { byUser: aiCreditsByUser, creditsPerUser, hasOfficialCredits } = useAiCreditsEstimate()
 
 const userLogin = computed(() => route.params.userLogin as string)
-const userMetrics = getUserMetrics(userLogin.value)
+
+const userMetrics = computed(() =>
+  metrics.value.filter((m) => m.user_login === userLogin.value)
+)
+
+const userAiCredits = computed(() =>
+  aiCreditsByUser.value.find((u) => u.login === userLogin.value)
+)
+
+const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+const dec = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
 
 // Redirect to dashboard if no data is loaded
 watch(
@@ -33,24 +41,61 @@ const userSummary = computed(() => {
   return usersSummary.value.find((u) => u.user_login === userLogin.value)
 })
 
+function locFromMetric(metric: {
+  loc_added_sum?: number
+  loc_suggested_to_add_sum?: number
+  totals_by_ide: { loc_added_sum: number; loc_suggested_to_add_sum: number }[]
+}): { added: number; suggested: number } {
+  if (
+    typeof metric.loc_added_sum === 'number' ||
+    typeof metric.loc_suggested_to_add_sum === 'number'
+  ) {
+    return {
+      added: metric.loc_added_sum ?? 0,
+      suggested: metric.loc_suggested_to_add_sum ?? 0
+    }
+  }
+  let added = 0
+  let suggested = 0
+  for (const ide of metric.totals_by_ide ?? []) {
+    added += ide.loc_added_sum
+    suggested += ide.loc_suggested_to_add_sum
+  }
+  return { added, suggested }
+}
+
 // Transform user metrics to daily format
 const userDailyMetrics = computed<DailyMetrics[]>(() => {
   const dayMap = new Map<
     string,
-    { interactions: number; generated: number; accepted: number }
+    {
+      interactions: number
+      generated: number
+      accepted: number
+      aiCredits: number
+      locAdded: number
+      locSuggested: number
+    }
   >()
 
   for (const metric of userMetrics.value) {
+    const loc = locFromMetric(metric)
     const existing = dayMap.get(metric.day)
     if (existing) {
       existing.interactions += metric.user_initiated_interaction_count
       existing.generated += metric.code_generation_activity_count
       existing.accepted += metric.code_acceptance_activity_count
+      existing.aiCredits += metric.ai_credits_used ?? 0
+      existing.locAdded += loc.added
+      existing.locSuggested += loc.suggested
     } else {
       dayMap.set(metric.day, {
         interactions: metric.user_initiated_interaction_count,
         generated: metric.code_generation_activity_count,
-        accepted: metric.code_acceptance_activity_count
+        accepted: metric.code_acceptance_activity_count,
+        aiCredits: metric.ai_credits_used ?? 0,
+        locAdded: loc.added,
+        locSuggested: loc.suggested
       })
     }
   }
@@ -62,7 +107,11 @@ const userDailyMetrics = computed<DailyMetrics[]>(() => {
       total_interactions: data.interactions,
       total_code_generated: data.generated,
       total_code_accepted: data.accepted,
-      acceptance_rate: data.generated > 0 ? Math.round((data.accepted / data.generated) * 100) : 0
+      acceptance_rate:
+        data.generated > 0 ? Math.round((data.accepted / data.generated) * 100) : 0,
+      ai_credits: data.aiCredits,
+      loc_added: data.locAdded,
+      loc_suggested: data.locSuggested
     }))
     .sort((a, b) => a.day.localeCompare(b.day))
 })
@@ -156,6 +205,15 @@ function getAcceptanceRateColor(rate: number): string {
   return 'var(--color-accent-red)'
 }
 
+function getPhaseSeverity(phase: string): string {
+  const severities: Record<string, string> = {
+    'Phase 1': 'info',
+    'Phase 2': 'warn',
+    'Phase 3': 'success',
+    'No Cohort': 'secondary'
+  }
+  return severities[phase] || 'secondary'
+}
 </script>
 
 <template>
@@ -189,6 +247,11 @@ function getAcceptanceRateColor(rate: number): string {
           <h1 class="user-name">{{ userLogin }}</h1>
           <p class="user-meta">
             <Tag :value="userSummary.primary_ide" severity="info" />
+            <Tag
+              v-if="userSummary.adoption_phase"
+              :value="userSummary.adoption_phase"
+              :severity="getPhaseSeverity(userSummary.adoption_phase)"
+            />
             <span>{{ userSummary.active_days }} active days</span>
             <span>Last activity: {{ userSummary.last_active_day }}</span>
           </p>
@@ -198,15 +261,27 @@ function getAcceptanceRateColor(rate: number): string {
       <!-- User Stats -->
       <div class="stats-grid">
         <div class="stat-card">
-          <span class="stat-card-label">Interactions</span>
+          <span class="stat-card-label">AI Credits</span>
           <span class="stat-card-value purple">
+            {{ dec.format(userSummary.ai_credits) }}
+          </span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card-label">Interactions</span>
+          <span class="stat-card-value">
             {{ formatNumber(userSummary.total_interactions) }}
           </span>
         </div>
         <div class="stat-card">
-          <span class="stat-card-label">Code Generated</span>
+          <span class="stat-card-label">LOC Added</span>
+          <span class="stat-card-value yellow">
+            {{ formatNumber(userSummary.loc_added) }}
+          </span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card-label">LOC Suggested</span>
           <span class="stat-card-value">
-            {{ formatNumber(userSummary.total_code_generated) }}
+            {{ formatNumber(userSummary.loc_suggested) }}
           </span>
         </div>
         <div class="stat-card">
@@ -224,26 +299,84 @@ function getAcceptanceRateColor(rate: number): string {
             {{ userSummary.acceptance_rate }}%
           </span>
         </div>
-        <div class="stat-card">
-          <span class="stat-card-label">Lines Added</span>
-          <span class="stat-card-value yellow">
-            {{ formatNumber(userSummary.loc_added) }}
-          </span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-card-label">Lines Suggested</span>
-          <span class="stat-card-value">
-            {{ formatNumber(userSummary.loc_suggested) }}
-          </span>
-        </div>
       </div>
 
-      <!-- Premium Requests -->
-      <div style="margin-bottom: 1.5rem">
-        <PremiumRequestsCard
-          :user-login="userLogin"
-          @open-settings="settingsOpen = true"
-        />
+      <!-- AI usage (credits & cost) -->
+      <div v-if="userAiCredits" class="dashboard-card ai-credits-card">
+        <div class="dashboard-card-header">
+          <div>
+            <h3 class="dashboard-card-title">AI usage</h3>
+            <p class="dashboard-card-subtitle">
+              {{
+                hasOfficialCredits
+                  ? 'Official AI credits from the usage report (1 AI credit = $0.01)'
+                  : 'Estimated AI credits consumption (1 AI credit = $0.01)'
+              }}
+            </p>
+          </div>
+        </div>
+        <div class="ai-credits-summary">
+          <div class="ai-credit-stat">
+            <span class="stat-card-label">Cost</span>
+            <span class="stat-card-value">{{ usd.format(userAiCredits.costUsd) }}</span>
+          </div>
+          <div class="ai-credit-stat">
+            <span class="stat-card-label">AI credits</span>
+            <span class="stat-card-value purple">{{ dec.format(userAiCredits.aiCredits) }}</span>
+          </div>
+          <div class="ai-credit-stat">
+            <span class="stat-card-label">Within quota</span>
+            <span class="stat-card-value">
+              {{ dec.format(userAiCredits.includedCredits) }}
+              <span class="stat-card-suffix">/ {{ dec.format(creditsPerUser) }}</span>
+            </span>
+          </div>
+          <div class="ai-credit-stat">
+            <span class="stat-card-label">Additional usage</span>
+            <span
+              class="stat-card-value"
+              :style="{ color: userAiCredits.overageCostUsd > 0 ? 'var(--color-accent-red)' : undefined }"
+            >
+              {{ usd.format(userAiCredits.overageCostUsd) }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Daily credits sparkline -->
+        <div class="user-credits-chart">
+          <h4 class="mini-chart-title">Daily AI credits</h4>
+          <div class="chart-container mini">
+            <UsageLineChart
+              v-if="userDailyMetrics.length > 0"
+              :daily-metrics="userDailyMetrics"
+              mode="credits"
+            />
+          </div>
+        </div>
+
+        <DataTable
+          v-if="userAiCredits.byModel.length > 0"
+          :value="userAiCredits.byModel"
+          class="ai-credits-models"
+        >
+          <Column field="displayName" header="Model" sortable />
+          <Column field="interactions" header="Interactions" sortable>
+            <template #body="{ data }">{{ formatNumber(data.interactions) }}</template>
+          </Column>
+          <Column field="aiCredits" header="Est. Credits" sortable>
+            <template #body="{ data }">{{ dec.format(data.aiCredits) }}</template>
+          </Column>
+          <Column field="costUsd" header="Est. Cost" sortable>
+            <template #body="{ data }">
+              <span style="color: var(--color-text-primary); font-weight: 600">
+                {{ usd.format(data.costUsd) }}
+              </span>
+            </template>
+          </Column>
+        </DataTable>
+        <p v-if="hasOfficialCredits && userAiCredits.byModel.length > 0" class="model-note">
+          Per-model credits are estimated from interactions; totals above use official AI credits.
+        </p>
       </div>
 
       <!-- Charts -->
@@ -257,7 +390,7 @@ function getAcceptanceRateColor(rate: number): string {
             <UsageLineChart
               v-if="userDailyMetrics.length > 0"
               :daily-metrics="userDailyMetrics"
-              :show-interactions="true"
+              mode="interactions"
             />
             <div v-else class="empty-state">
               <p>No data available</p>
@@ -328,8 +461,6 @@ function getAcceptanceRateColor(rate: number): string {
         </DataTable>
       </div>
     </template>
-
-    <PremiumSettingsDialog v-model:visible="settingsOpen" />
   </div>
 </template>
 
@@ -391,11 +522,65 @@ function getAcceptanceRateColor(rate: number): string {
   gap: 1rem;
   color: var(--color-text-secondary);
   font-size: 0.875rem;
+  flex-wrap: wrap;
 }
 
 .user-meta span {
   display: flex;
   align-items: center;
   gap: 0.25rem;
+}
+
+.ai-credits-card {
+  margin-bottom: 1.5rem;
+}
+
+.ai-credits-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.ai-credit-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 1rem;
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.stat-card-suffix {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.user-credits-chart {
+  margin-bottom: 1.25rem;
+}
+
+.mini-chart-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.chart-container.mini {
+  height: 220px;
+}
+
+.ai-credits-models {
+  margin-top: 0.5rem;
+}
+
+.model-note {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
 }
 </style>

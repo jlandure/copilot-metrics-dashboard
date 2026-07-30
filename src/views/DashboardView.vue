@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
 import { useCopilotMetrics } from '@/composables/useCopilotMetrics'
 import FileUpload from '@/components/FileUpload.vue'
 import StatsCards from '@/components/StatsCards.vue'
@@ -8,11 +7,10 @@ import UsageLineChart from '@/components/charts/UsageLineChart.vue'
 import FeatureDoughnutChart from '@/components/charts/FeatureDoughnutChart.vue'
 import IdeBarChart from '@/components/charts/IdeBarChart.vue'
 import LanguageBarChart from '@/components/charts/LanguageBarChart.vue'
-import PremiumTopConsumersCard from '@/components/PremiumTopConsumersCard.vue'
-import PremiumSettingsDialog from '@/components/PremiumSettingsDialog.vue'
-import PremiumDistributionChart from '@/components/charts/PremiumDistributionChart.vue'
-import { usePremiumRequests } from '@/composables/usePremiumRequests'
-import type { PremiumTierId } from '@/types/premium'
+import AdoptionPhaseChart from '@/components/charts/AdoptionPhaseChart.vue'
+import LocProductivityChart from '@/components/charts/LocProductivityChart.vue'
+import AiUsageCreditsCards from '@/components/aiusage/AiUsageCreditsCards.vue'
+import AiUsageTrendChart from '@/components/aiusage/AiUsageTrendChart.vue'
 
 const {
   loading,
@@ -22,43 +20,12 @@ const {
   clearMetrics,
   usersSummary,
   dailyMetrics,
+  adoptionMetrics,
   featureMetrics,
   ideMetrics,
   languageMetrics,
   globalStats
 } = useCopilotMetrics()
-
-const { usersByTier } = usePremiumRequests()
-
-const settingsOpen = ref(false)
-const selectedTierId = ref<PremiumTierId | null>(null)
-
-const selectedTier = computed(() =>
-  selectedTierId.value
-    ? usersByTier.value.find((t) => t.id === selectedTierId.value) ?? null
-    : null
-)
-
-const filteredUsers = computed(() => {
-  if (!selectedTier.value) return usersSummary.value
-  const allowed = new Set(selectedTier.value.users.map((u) => u.user_login))
-  return usersSummary.value.filter((u) => allowed.has(u.user_login))
-})
-
-function clearTierFilter() {
-  selectedTierId.value = null
-}
-
-watch(
-  () => usersByTier.value,
-  (tiers) => {
-    if (!selectedTierId.value) return
-    const found = tiers.find((t) => t.id === selectedTierId.value)
-    if (!found || found.count === 0) {
-      selectedTierId.value = null
-    }
-  }
-)
 
 function handleFileUpload(data: string) {
   loadMetricsFromText(data)
@@ -76,7 +43,7 @@ function handleFileUpload(data: string) {
         <div>
           <h1 class="page-title">
             Copilot Dashboard
-            <span class="page-subtitle">Adoption and usage analytics</span>
+            <span class="page-subtitle">Adoption, AI credits and productivity</span>
           </h1>
         </div>
         <button class="change-data-btn" @click="clearMetrics">
@@ -97,12 +64,96 @@ function handleFileUpload(data: string) {
         <span>Error loading data: {{ error }}</span>
       </div>
 
-      <!-- Stats Cards -->
+      <!-- 1. Overview KPIs -->
       <StatsCards :stats="globalStats" :loading="loading" />
 
-      <!-- Charts Grid -->
+      <!-- 2. AI Usage & Cost -->
+      <div class="ai-usage-section">
+        <div class="section-header">
+          <h2 class="section-title">AI usage &amp; cost</h2>
+          <p class="section-subtitle">
+            {{
+              globalStats.has_official_ai_credits
+                ? 'Official AI credits from the usage report (1 AI credit = $0.01)'
+                : 'Estimated AI credits from model interactions (1 AI credit = $0.01)'
+            }}
+          </p>
+        </div>
+        <AiUsageCreditsCards />
+        <div class="charts-grid">
+          <div class="dashboard-card">
+            <div class="dashboard-card-header">
+              <div>
+                <h3 class="dashboard-card-title">Daily AI Credits</h3>
+                <p class="dashboard-card-subtitle">Credits vs interactions over the period</p>
+              </div>
+            </div>
+            <div class="chart-container">
+              <UsageLineChart
+                v-if="dailyMetrics.length > 0"
+                :daily-metrics="dailyMetrics"
+                mode="credits"
+              />
+              <div v-else-if="loading" class="loading-container">
+                <div class="loading-spinner"></div>
+              </div>
+            </div>
+          </div>
+          <AiUsageTrendChart />
+        </div>
+      </div>
+
+      <!-- 3. Adoption & Productivity -->
+      <div class="section-block">
+        <div class="section-header">
+          <h2 class="section-title">Adoption &amp; productivity</h2>
+          <p class="section-subtitle">
+            AI adoption cohorts and lines of code suggested vs accepted
+          </p>
+        </div>
+
+        <div class="charts-grid">
+          <div class="dashboard-card">
+            <div class="dashboard-card-header">
+              <div>
+                <h3 class="dashboard-card-title">Adoption by Phase</h3>
+                <p class="dashboard-card-subtitle">Users and AI credits per cohort</p>
+              </div>
+            </div>
+            <div class="chart-container">
+              <AdoptionPhaseChart
+                v-if="adoptionMetrics.length > 0"
+                :adoption-metrics="adoptionMetrics"
+              />
+              <div v-else-if="loading" class="loading-container">
+                <div class="loading-spinner"></div>
+              </div>
+              <div v-else class="empty-inline">No adoption phase data in this export</div>
+            </div>
+          </div>
+
+          <div class="dashboard-card">
+            <div class="dashboard-card-header">
+              <div>
+                <h3 class="dashboard-card-title">LOC Productivity</h3>
+                <p class="dashboard-card-subtitle">Suggested vs added lines + acceptance rate</p>
+              </div>
+            </div>
+            <div class="chart-container">
+              <LocProductivityChart
+                v-if="dailyMetrics.length > 0"
+                :daily-metrics="dailyMetrics"
+              />
+              <div v-else-if="loading" class="loading-container">
+                <div class="loading-spinner"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity charts -->
       <div class="charts-grid">
-        <!-- Daily Active Users -->
         <div class="dashboard-card">
           <div class="dashboard-card-header">
             <div>
@@ -114,6 +165,7 @@ function handleFileUpload(data: string) {
             <UsageLineChart
               v-if="dailyMetrics.length > 0"
               :daily-metrics="dailyMetrics"
+              mode="users"
             />
             <div v-else-if="loading" class="loading-container">
               <div class="loading-spinner"></div>
@@ -121,7 +173,6 @@ function handleFileUpload(data: string) {
           </div>
         </div>
 
-        <!-- Daily Interactions -->
         <div class="dashboard-card">
           <div class="dashboard-card-header">
             <div>
@@ -133,7 +184,7 @@ function handleFileUpload(data: string) {
             <UsageLineChart
               v-if="dailyMetrics.length > 0"
               :daily-metrics="dailyMetrics"
-              :show-interactions="true"
+              mode="interactions"
             />
             <div v-else-if="loading" class="loading-container">
               <div class="loading-spinner"></div>
@@ -141,7 +192,6 @@ function handleFileUpload(data: string) {
           </div>
         </div>
 
-        <!-- Feature Distribution -->
         <div class="dashboard-card">
           <div class="dashboard-card-header">
             <div>
@@ -160,7 +210,6 @@ function handleFileUpload(data: string) {
           </div>
         </div>
 
-        <!-- IDE Usage -->
         <div class="dashboard-card">
           <div class="dashboard-card-header">
             <div>
@@ -174,24 +223,6 @@ function handleFileUpload(data: string) {
               <div class="loading-spinner"></div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- Premium Requests Overview -->
-      <div class="premium-grid">
-        <PremiumTopConsumersCard :limit="8" @open-settings="settingsOpen = true" />
-
-        <div class="dashboard-card">
-          <div class="dashboard-card-header">
-            <div>
-              <h3 class="dashboard-card-title">Distribution par palier</h3>
-              <p class="dashboard-card-subtitle">% du quota mensuel projeté</p>
-            </div>
-          </div>
-          <PremiumDistributionChart
-            v-model:selected-tier-id="selectedTierId"
-            :tiers="usersByTier"
-          />
         </div>
       </div>
 
@@ -215,42 +246,9 @@ function handleFileUpload(data: string) {
         </div>
       </div>
 
-      <!-- Active filter chip -->
-      <div v-if="selectedTier" class="active-filter-chip">
-        <span
-          class="chip-dot"
-          :style="{ backgroundColor: selectedTier.color }"
-          aria-hidden="true"
-        ></span>
-        <span class="chip-text">
-          Filtre actif :
-          <strong>{{ selectedTier.label }}</strong>
-        </span>
-        <span class="chip-count">{{ filteredUsers.length }} utilisateur(s)</span>
-        <button
-          type="button"
-          class="chip-clear"
-          title="Retirer le filtre"
-          aria-label="Retirer le filtre"
-          @click="clearTierFilter"
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
-            <path
-              d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"
-            />
-          </svg>
-        </button>
-      </div>
-
       <!-- Users Table -->
-      <UsersTable
-        :users="filteredUsers"
-        :loading="loading"
-        @open-premium-settings="settingsOpen = true"
-      />
+      <UsersTable :users="usersSummary" :loading="loading" />
     </template>
-
-    <PremiumSettingsDialog v-model:visible="settingsOpen" />
   </div>
 </template>
 
@@ -318,83 +316,42 @@ function handleFileUpload(data: string) {
   margin-bottom: 1.5rem;
 }
 
-.premium-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 1.5rem;
+.ai-usage-section,
+.section-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
   margin-bottom: 1.5rem;
 }
 
-@media (max-width: 1024px) {
-  .premium-grid {
-    grid-template-columns: 1fr;
-  }
+.section-header {
+  margin-bottom: 0.25rem;
 }
 
-.active-filter-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0.5rem 0.75rem 0.5rem 0.875rem;
-  margin-bottom: 0.875rem;
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: 0.875rem;
+.section-title {
+  font-size: 1.25rem;
+  font-weight: 700;
   color: var(--color-text-primary);
-  animation: chipIn 0.2s ease-out;
 }
 
-@keyframes chipIn {
-  from {
-    opacity: 0;
-    transform: translateX(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+.section-subtitle {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
 }
 
-.chip-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.chip-text strong {
-  font-weight: 600;
-  margin-left: 0.25rem;
-}
-
-.chip-count {
-  padding: 0.125rem 0.5rem;
-  background-color: var(--color-bg-tertiary);
-  border-radius: 999px;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-}
-
-.chip-clear {
-  display: inline-flex;
+.empty-inline {
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  margin-left: 0.125rem;
-  background-color: var(--color-bg-tertiary);
-  border: none;
-  border-radius: 50%;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all 0.15s ease;
+  height: 100%;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
 }
 
-.chip-clear:hover {
-  background-color: var(--color-accent-red);
-  color: white;
+/* AiUsageTrendChart is itself a dashboard-card; nest cleanly in the grid */
+.charts-grid > .dashboard-card.chart-card,
+.charts-grid > :deep(.chart-card) {
+  margin: 0;
 }
 </style>

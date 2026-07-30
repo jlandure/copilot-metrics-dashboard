@@ -16,6 +16,20 @@ function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
 }
 
+function formatCredits(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: value >= 100 ? 0 : 2
+  }).format(value)
+}
+
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0
+  }).format(value)
+}
+
 function formatDate(dateString: string): string {
   if (!dateString) return '-'
   const date = new Date(dateString)
@@ -51,48 +65,52 @@ function formatDate(dateString: string): string {
       </div>
 
       <div class="stat-card">
-        <span class="stat-card-label">Total Interactions</span>
+        <span class="stat-card-label">AI Credits</span>
         <span class="stat-card-value purple">
-          <template v-if="!loading">{{ formatNumber(stats.total_interactions) }}</template>
+          <template v-if="!loading">{{ formatCredits(stats.total_ai_credits) }}</template>
           <Skeleton v-else width="80px" height="2.5rem" />
         </span>
-        <span class="stat-card-trend">Chat + Completions</span>
+        <span class="stat-card-trend">
+          {{ stats.has_official_ai_credits ? 'Official from export' : 'Estimated' }}
+        </span>
       </div>
 
       <div class="stat-card">
-        <span class="stat-card-label">Suggestions Generated</span>
+        <span class="stat-card-label">AI Cost</span>
         <span class="stat-card-value">
-          <template v-if="!loading">{{ formatNumber(stats.total_code_generated) }}</template>
+          <template v-if="!loading">{{ formatUsd(stats.total_ai_cost_usd) }}</template>
           <Skeleton v-else width="80px" height="2.5rem" />
         </span>
-        <span class="stat-card-trend">Code proposed by Copilot</span>
+        <span class="stat-card-trend">1 credit = $0.01</span>
       </div>
 
       <div class="stat-card">
-        <span class="stat-card-label">Suggestions Accepted</span>
-        <span class="stat-card-value green">
-          <template v-if="!loading">{{ formatNumber(stats.total_code_accepted) }}</template>
-          <Skeleton v-else width="80px" height="2.5rem" />
-        </span>
-        <span class="stat-card-trend">Code accepted by devs</span>
-      </div>
-
-      <div class="stat-card">
-        <span class="stat-card-label">Acceptance Rate</span>
-        <span class="stat-card-value green">
-          <template v-if="!loading">{{ stats.average_acceptance_rate }}%</template>
-          <Skeleton v-else width="60px" height="2.5rem" />
-        </span>
-        <span class="stat-card-trend">Global average</span>
-      </div>
-
-      <div class="stat-card">
-        <span class="stat-card-label">Lines of Code Added</span>
+        <span class="stat-card-label">LOC Added</span>
         <span class="stat-card-value yellow">
           <template v-if="!loading">{{ formatNumber(stats.total_loc_added) }}</template>
           <Skeleton v-else width="80px" height="2.5rem" />
         </span>
-        <span class="stat-card-trend">Via Copilot</span>
+        <span class="stat-card-trend">
+          of {{ formatNumber(stats.total_loc_suggested) }} suggested
+        </span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-card-label">LOC Acceptance</span>
+        <span class="stat-card-value green">
+          <template v-if="!loading">{{ stats.loc_acceptance_rate }}%</template>
+          <Skeleton v-else width="60px" height="2.5rem" />
+        </span>
+        <span class="stat-card-trend">Added / suggested</span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-card-label">Interactions</span>
+        <span class="stat-card-value">
+          <template v-if="!loading">{{ formatNumber(stats.total_interactions) }}</template>
+          <Skeleton v-else width="80px" height="2.5rem" />
+        </span>
+        <span class="stat-card-trend">Chat + Completions</span>
       </div>
     </div>
   </div>
