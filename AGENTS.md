@@ -2,11 +2,11 @@
 
 This document provides instructions for AI agents working on this project.
 
-## 📋 Project Overview
+## Project Overview
 
-**Copilot Metrics Dashboard** is a Vue.js web application that visualizes GitHub Copilot usage metrics. It allows companies to analyze Copilot adoption and effectiveness within their teams.
+**Copilot Metrics Dashboard** is a Vue.js web application that visualizes GitHub Copilot usage metrics. It allows companies to analyze Copilot adoption, AI-credit consumption, and LOC productivity within their teams.
 
-## 🏗️ Architecture
+## Architecture
 
 ### Tech Stack
 
@@ -24,24 +24,40 @@ This document provides instructions for AI agents working on this project.
 copilot-metrics-dashboard/
 ├── src/
 │   ├── components/                        # Vue components (Single File Components)
+│   │   ├── aiusage/                       # AI-usage (credits & cost) view
+│   │   │   ├── AiUsageCreditsCards.vue    # Included credits gauge + additional usage
+│   │   │   └── AiUsageTrendChart.vue      # Daily cost chart (group by user; model for estimates)
 │   │   ├── charts/                        # Encapsulated charts
-│   │   └── aiusage/                       # AI-usage (credits & cost) view
-│   │       ├── AiUsageCreditsCards.vue    # Included credits gauge + additional usage
-│   │       └── AiUsageTrendChart.vue      # Daily cost chart (group by models/users)
+│   │   │   ├── AdoptionPhaseChart.vue     # Users + credits by ai_adoption_phase
+│   │   │   ├── FeatureDoughnutChart.vue
+│   │   │   ├── IdeBarChart.vue
+│   │   │   ├── LanguageBarChart.vue
+│   │   │   ├── LocProductivityChart.vue   # LOC suggested vs added + acceptance %
+│   │   │   └── UsageLineChart.vue         # modes: users | interactions | credits | loc
+│   │   ├── FileUpload.vue
+│   │   ├── StatsCards.vue
+│   │   └── UsersTable.vue
 │   ├── composables/                       # Reusable hooks (useXxx)
-│   │   └── useAiCreditsEstimate.ts        # AI-credit cost estimation (NDJSON)
+│   │   ├── useAiCreditsEstimate.ts        # Official ai_credits_used + fallback estimate
+│   │   ├── useChartData.ts
+│   │   ├── useCopilotMetrics.ts           # NDJSON parse + daily/user/adoption aggregations
+│   │   └── useGithubBilling.ts            # Live GitHub Billing API client
 │   ├── constants/
 │   │   └── premiumModels.ts              # Model registry (AI-credit multipliers)
 │   ├── types/                             # TypeScript definitions
-│   │   ├── copilot.ts                    # Copilot metrics interfaces
+│   │   ├── billing.ts                    # GitHub Billing API types
+│   │   ├── copilot.ts                    # Copilot metrics + aggregations
 │   │   └── premium.ts                    # Model registry types
 │   ├── views/                             # Pages/Views
+│   │   ├── BillingUsageView.vue           # /billing
+│   │   ├── DashboardView.vue              # /
+│   │   └── UserDetailView.vue             # /user/:userLogin
 │   └── router/                            # Router configuration
 ├── public/                                # Static assets
 └── dist/                                  # Production build
 ```
 
-## 🎯 Code Conventions
+## Code Conventions
 
 ### UI Language
 
@@ -93,42 +109,45 @@ locale override is requested.
 | Constants | SCREAMING_SNAKE_CASE | `MAX_USERS` |
 | CSS Files | kebab-case | `main.css` |
 
-## 📊 Data Model
+## Data Model
 
 ### Main Types
 
 Types are defined in `src/types/copilot.ts`:
 
-- **`CopilotMetric`** - Raw data for one day per user (includes `totals_by_model_feature`)
-- **`UserSummary`** - Aggregation per user
-- **`DailyMetrics`** - Aggregation per day
-- **`GlobalStats`** - Global statistics
-- **`FeatureMetrics`** / `IdeMetrics` / `LanguageMetrics` - Metrics by dimension
+- **`CopilotMetric`** — Raw day/user row. Newer exports include `ai_credits_used`,
+  top-level `loc_*_sum`, `ai_adoption_phase`, and product flags
+  (`used_cli`, `used_copilot_coding_agent`, …)
+- **`UserSummary`** — Aggregation per user (+ `ai_credits`, `adoption_phase`, LOC)
+- **`DailyMetrics`** — Aggregation per day (+ `ai_credits`, `loc_added`, `loc_suggested`)
+- **`AdoptionPhaseMetrics`** — Users / credits / LOC per adoption cohort
+- **`GlobalStats`** — Global KPIs including total AI credits/cost and LOC acceptance
+- **`FeatureMetrics`** / `IdeMetrics` / `LanguageMetrics` — Metrics by dimension
 
 Model registry types are defined in `src/types/premium.ts`:
 
-- **`ModelMultiplier`** - A model entry with `current` / `new` multipliers and
+- **`ModelMultiplier`** — A model entry with `current` / `new` multipliers and
   published token prices. The `new` value is the AI-credit multiplier used by
-  the AI-usage estimation.
+  the fallback estimation.
 
 AI-usage row shapes are defined in `src/composables/useAiCreditsEstimate.ts`:
 
-- **`AiCreditsUserRow`** - Per-user credits, cost, included/overage credits and
+- **`AiCreditsUserRow`** — Per-user credits, cost, included/overage credits and
   per-model breakdown
-- **`AiCreditsModelRow`** - Per-model interactions, credits and cost
-- **`AiCreditsTotals`** - Account totals (credits, cost, quota, overage)
+- **`AiCreditsModelRow`** — Per-model interactions, credits and cost (estimated)
+- **`AiCreditsTotals`** — Account totals (credits, cost, quota, overage, `isOfficial`)
 
 ### Input Data Format
 
 The dashboard consumes **NDJSON** (Newline Delimited JSON) files. Each line is a JSON object representing a user's metrics for a given day.
 
-## 🔧 Common Tasks
+## Common Tasks
 
 ### Adding a New Chart
 
 1. Create the component in `src/components/charts/`
 2. Import types from `@/types/copilot`
-3. Use `useChartData()` for Chart.js configuration
+3. Use Chart.js via `vue-chartjs` (see existing charts for the dark-theme options pattern)
 4. Define props with the data to display
 5. Add the chart in `DashboardView.vue`
 
@@ -151,7 +170,7 @@ The dashboard consumes **NDJSON** (Newline Delimited JSON) files. Each line is a
 2. Use existing CSS variables (`--color-*`, `--radius-*`, etc.)
 3. Test in dark mode
 
-## 💳 AI Usage Feature (credits & cost)
+## AI Usage Feature (credits & cost)
 
 ### Overview
 
@@ -173,6 +192,12 @@ CopilotMetric (NDJSON)
             └─► UsersTable / UserDetailView
 ```
 
+Dashboard layout (three blocks):
+
+1. **Overview** — `StatsCards` (users, credits, cost, LOC, interactions)
+2. **AI usage & cost** — gauge + daily credits + trend by user
+3. **Adoption & productivity** — phase chart + LOC trend + feature/IDE/language charts + users table
+
 ### Key concepts
 
 | Concept | Description |
@@ -183,6 +208,7 @@ CopilotMetric (NDJSON)
 | **Plan quota** | Monthly AI credits per user (`AI_CREDITS_PLANS`, Business/Enterprise, with promo) |
 | **Included vs additional** | Credits within `userCount × creditsPerUser` are "included"; the rest is overage |
 | **Adoption phase** | `ai_adoption_phase` cohort (Phase 1/2/3 / No Cohort) |
+| **LOC top-level** | Prefer `loc_*_sum` on the row; fall back to summing nested IDE totals |
 | **Group by** | Trend chart groups by user when official credits are present |
 
 ### Notes
@@ -190,9 +216,12 @@ CopilotMetric (NDJSON)
 - Official credits are not broken down by model; per-model cost remains an
   interaction-based estimate.
 - Settings (plan, promo toggle, unknown multiplier) are module-level refs in
-  `useAiCreditsEstimate`, so every component stays in sync without prop drilling.
+  `useAiCreditsEstimate`, so every component (cards, chart, table, user detail)
+  stays in sync without prop drilling.
+- The `/billing` route (`BillingUsageView` + `useGithubBilling`) talks to the
+  GitHub Billing API via the Vite/Nginx `/api/github` proxy — separate from NDJSON.
 
-## 🐳 Docker and Deployment
+## Docker and Deployment
 
 ### Docker Build
 
@@ -201,14 +230,19 @@ docker build -t copilot-metrics-dashboard .
 docker run -p 8080:8080 copilot-metrics-dashboard
 ```
 
-### Cloud Run Specifics
+### Cloud Run
+
+```bash
+npm run deploy
+```
 
 - The `Dockerfile` uses a multi-stage build (Node.js → Nginx Alpine)
 - Port is dynamic via `$PORT` (default: 8080)
+- Nginx proxies `/api/github/*` to `api.github.com` for the Billing page
 - User is non-root (`appuser:1001`)
 - Health check configured for monitoring
 
-## ⚠️ Important Considerations
+## Important Considerations
 
 ### Performance
 
@@ -227,8 +261,9 @@ docker run -p 8080:8080 copilot-metrics-dashboard
 - No sensitive data in the frontend
 - Validate NDJSON format before parsing
 - Escape displayed data
+- Do not commit NDJSON exports with real user data
 
-## 🧪 Tests
+## Tests
 
 *(To be implemented)*
 
@@ -237,7 +272,7 @@ To add tests:
 - Vue Test Utils for component tests
 - Consider Playwright or Cypress for E2E tests
 
-## 📚 Useful Resources
+## Useful Resources
 
 - [Vue.js 3 Documentation](https://vuejs.org/)
 - [TypeScript Handbook](https://www.typescriptlang.org/docs/)
