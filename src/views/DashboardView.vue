@@ -11,6 +11,7 @@ import AdoptionPhaseChart from '@/components/charts/AdoptionPhaseChart.vue'
 import LocProductivityChart from '@/components/charts/LocProductivityChart.vue'
 import AiUsageCreditsCards from '@/components/aiusage/AiUsageCreditsCards.vue'
 import AiUsageTrendChart from '@/components/aiusage/AiUsageTrendChart.vue'
+import CustomizationsPanel from '@/components/customizations/CustomizationsPanel.vue'
 
 const {
   loading,
@@ -24,7 +25,8 @@ const {
   featureMetrics,
   ideMetrics,
   languageMetrics,
-  globalStats
+  globalStats,
+  customizationCatalogs
 } = useCopilotMetrics()
 
 function handleFileUpload(data: string) {
@@ -102,6 +104,8 @@ function handleFileUpload(data: string) {
           <AiUsageTrendChart />
         </div>
       </div>
+
+      <CustomizationsPanel :catalogs="customizationCatalogs" scope="organization" />
 
       <!-- 3. Adoption & Productivity -->
       <div class="section-block">

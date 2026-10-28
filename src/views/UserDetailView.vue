@@ -5,14 +5,17 @@ import { useCopilotMetrics } from '@/composables/useCopilotMetrics'
 import UsageLineChart from '@/components/charts/UsageLineChart.vue'
 import LanguageBarChart from '@/components/charts/LanguageBarChart.vue'
 import { useAiCreditsEstimate } from '@/composables/useAiCreditsEstimate'
+import CustomizationsPanel from '@/components/customizations/CustomizationsPanel.vue'
 import type { DailyMetrics, LanguageMetrics } from '@/types/copilot'
 
 const route = useRoute()
 const router = useRouter()
-const { loading, isDataLoaded, metrics, usersSummary } = useCopilotMetrics()
+const { loading, isDataLoaded, metrics, usersSummary, customizationByUser } = useCopilotMetrics()
 const { byUser: aiCreditsByUser, creditsPerUser, hasOfficialCredits } = useAiCreditsEstimate()
 
 const userLogin = computed(() => route.params.userLogin as string)
+
+const userCatalogs = computed(() => customizationByUser.value[userLogin.value] ?? [])
 
 const userMetrics = computed(() =>
   metrics.value.filter((m) => m.user_login === userLogin.value)
@@ -378,6 +381,8 @@ function getPhaseSeverity(phase: string): string {
           Per-model credits are estimated from interactions; totals above use official AI credits.
         </p>
       </div>
+
+      <CustomizationsPanel :catalogs="userCatalogs" scope="user" />
 
       <!-- Charts -->
       <div class="charts-grid">

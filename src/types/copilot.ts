@@ -77,6 +77,31 @@ export interface TokenUsage {
   avg_tokens_per_request?: number
 }
 
+export interface TotalsBySkill {
+  skill: string
+  interaction_count: number
+}
+
+export interface TotalsByMcp {
+  mcp: string
+  interaction_count: number
+}
+
+export interface TotalsByCustomAgent {
+  custom_agent: string
+  interaction_count: number
+}
+
+export interface TotalsByPlugin {
+  plugin: string
+  interaction_count: number
+}
+
+export interface TotalsBySlashCmd {
+  slash_cmd: string
+  interaction_count: number
+}
+
 export interface TotalsByCli {
   prompt_count?: number
   request_count?: number
@@ -117,6 +142,16 @@ export interface CopilotMetric {
   totals_by_model_feature?: TotalsByModelFeature[]
   totals_by_cli?: TotalsByCli
   totals_by_copilot_app?: TotalsByCli
+  /** Named skill activity. Residual activity is grouped as `other`. */
+  totals_by_skill?: TotalsBySkill[]
+  /** Named MCP server activity. Residual activity is grouped as `other`. */
+  totals_by_mcp?: TotalsByMcp[]
+  /** Named custom-agent activity. Residual activity is grouped as `other`. */
+  totals_by_custom_agent?: TotalsByCustomAgent[]
+  /** Named plugin activity. Residual activity is grouped as `other`. */
+  totals_by_plugin?: TotalsByPlugin[]
+  /** Named slash-command activity. Residual activity is grouped as `custom`. */
+  totals_by_slash_cmd?: TotalsBySlashCmd[]
   used_agent?: boolean
   used_chat?: boolean
   used_cli?: boolean
@@ -211,4 +246,28 @@ export interface GlobalStats {
   total_ai_cost_usd: number
   /** True when at least one row carries official `ai_credits_used`. */
   has_official_ai_credits: boolean
+}
+
+/** One dimension of named Copilot customizations (skills, MCP, …). */
+export type CustomizationKind = 'skill' | 'mcp' | 'custom_agent' | 'plugin' | 'slash_cmd'
+
+/** A configured name, or the residual `other` / `custom` bucket. */
+export interface CustomizationEntry {
+  name: string
+  interactions: number
+  /** Distinct users with this name. Always 1 on a single-user view. */
+  users: number
+  /** Distinct days with this name. */
+  activeDays: number
+  /** True when GitHub grouped the activity as `other` or `custom`. */
+  bucket: boolean
+}
+
+export interface CustomizationCatalog {
+  kind: CustomizationKind
+  entries: CustomizationEntry[]
+  namedInteractions: number
+  namedUserCount: number
+  bucketInteractions: number
+  bucketUserCount: number
 }

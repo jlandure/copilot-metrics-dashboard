@@ -7,7 +7,10 @@ import type {
   IdeMetrics,
   LanguageMetrics,
   GlobalStats,
-  AdoptionPhaseMetrics
+  AdoptionPhaseMetrics,
+  CustomizationCatalog,
+  CustomizationEntry,
+  CustomizationKind
 } from '@/types/copilot'
 
 const STORAGE_KEY = 'copilot-metrics-data'
@@ -474,6 +477,8 @@ export function useCopilotMetrics() {
     return computed(() => metrics.value.filter((m) => m.user_login === userLogin))
   }
 
+  const customization = computed(() => aggregateCustomizations(metrics.value))
+
   return {
     metrics,
     loading,
@@ -489,7 +494,9 @@ export function useCopilotMetrics() {
     ideMetrics,
     languageMetrics,
     globalStats,
-    getUserMetrics
+    getUserMetrics,
+    customizationCatalogs: computed(() => customization.value.org),
+    customizationByUser: computed(() => customization.value.byUser)
   }
 }
 
@@ -503,6 +510,167 @@ function formatFeatureName(feature: string): string {
     inline_chat: 'Inline Chat'
   }
   return names[feature] || feature.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+const CUSTOMIZATION_KINDS: readonly CustomizationKind[] = [
+  'skill',
+  'mcp',
+  'custom_agent',
+  'plugin',
+  'slash_cmd'
+]
+
+const BUCKET_NAMES = new Set(['other', 'custom', 'unknown'])
+
+interface NameAccumulator {
+  interactions: number
+  users: Set<string>
+  days: Set<string>
+}
+
+function namedItem(
+  name: string | undefined,
+  interactions: number | undefined
+): { name: string; interactions: number } | null {
+  if (typeof name !== 'string' || name.trim() === '') return null
+  if (typeof interactions !== 'number' || !Number.isFinite(interactions)) return null
+  return { name, interactions }
+}
+
+function readNamedItems(
+  metric: CopilotMetric,
+  kind: CustomizationKind
+): { name: string; interactions: number }[] {
+  const items: { name: string; interactions: number }[] = []
+  const push = (item: { name: string; interactions: number } | null) => {
+    if (item) items.push(item)
+  }
+
+  switch (kind) {
+    case 'skill':
+      for (const row of metric.totals_by_skill ?? []) push(namedItem(row.skill, row.interaction_count))
+      break
+    case 'mcp':
+      for (const row of metric.totals_by_mcp ?? []) push(namedItem(row.mcp, row.interaction_count))
+      break
+    case 'custom_agent':
+      for (const row of metric.totals_by_custom_agent ?? []) {
+        push(namedItem(row.custom_agent, row.interaction_count))
+      }
+      break
+    case 'plugin':
+      for (const row of metric.totals_by_plugin ?? []) push(namedItem(row.plugin, row.interaction_count))
+      break
+    case 'slash_cmd':
+      for (const row of metric.totals_by_slash_cmd ?? []) {
+        push(namedItem(row.slash_cmd, row.interaction_count))
+      }
+      break
+  }
+
+  return items
+}
+
+function bumpName(
+  map: Map<string, NameAccumulator>,
+  name: string,
+  interactions: number,
+  user: string,
+  day: string
+) {
+  let acc = map.get(name)
+  if (!acc) {
+    acc = { interactions: 0, users: new Set(), days: new Set() }
+    map.set(name, acc)
+  }
+  acc.interactions += interactions
+  acc.users.add(user)
+  acc.days.add(day)
+}
+
+function toCatalog(kind: CustomizationKind, map: Map<string, NameAccumulator>): CustomizationCatalog {
+  const entries: CustomizationEntry[] = []
+  let namedInteractions = 0
+  let bucketInteractions = 0
+  const namedUsers = new Set<string>()
+  const bucketUsers = new Set<string>()
+
+  for (const [name, acc] of map) {
+    const bucket = BUCKET_NAMES.has(name.trim().toLowerCase())
+    entries.push({
+      name,
+      interactions: acc.interactions,
+      users: acc.users.size,
+      activeDays: acc.days.size,
+      bucket
+    })
+    if (bucket) {
+      bucketInteractions += acc.interactions
+      for (const user of acc.users) bucketUsers.add(user)
+    } else {
+      namedInteractions += acc.interactions
+      for (const user of acc.users) namedUsers.add(user)
+    }
+  }
+
+  entries.sort(
+    (a, b) => b.interactions - a.interactions || b.users - a.users || a.name.localeCompare(b.name)
+  )
+
+  return {
+    kind,
+    entries,
+    namedInteractions,
+    namedUserCount: namedUsers.size,
+    bucketInteractions,
+    bucketUserCount: bucketUsers.size
+  }
+}
+
+function aggregateCustomizations(rows: CopilotMetric[]): {
+  org: CustomizationCatalog[]
+  byUser: Record<string, CustomizationCatalog[]>
+} {
+  const orgMaps = new Map<CustomizationKind, Map<string, NameAccumulator>>()
+  const userMaps = new Map<string, Map<CustomizationKind, Map<string, NameAccumulator>>>()
+
+  for (const kind of CUSTOMIZATION_KINDS) {
+    orgMaps.set(kind, new Map())
+  }
+
+  for (const metric of rows) {
+    let kindsForUser = userMaps.get(metric.user_login)
+    if (!kindsForUser) {
+      kindsForUser = new Map()
+      userMaps.set(metric.user_login, kindsForUser)
+    }
+
+    for (const kind of CUSTOMIZATION_KINDS) {
+      const items = readNamedItems(metric, kind)
+      if (items.length === 0) continue
+
+      const orgMap = orgMaps.get(kind)!
+      let userMap = kindsForUser.get(kind)
+      if (!userMap) {
+        userMap = new Map()
+        kindsForUser.set(kind, userMap)
+      }
+
+      for (const item of items) {
+        bumpName(orgMap, item.name, item.interactions, metric.user_login, metric.day)
+        bumpName(userMap, item.name, item.interactions, metric.user_login, metric.day)
+      }
+    }
+  }
+
+  const org = CUSTOMIZATION_KINDS.map((kind) => toCatalog(kind, orgMaps.get(kind)!))
+
+  const byUser: Record<string, CustomizationCatalog[]> = {}
+  for (const [login, kinds] of userMaps) {
+    byUser[login] = CUSTOMIZATION_KINDS.map((kind) => toCatalog(kind, kinds.get(kind) ?? new Map()))
+  }
+
+  return { org, byUser }
 }
 
 function formatIdeName(ide: string): string {
