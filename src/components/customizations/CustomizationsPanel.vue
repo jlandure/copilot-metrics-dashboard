@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, watch } from 'vue'
+import { isCopilotDefault } from '@/constants/copilotDefaults'
 import type { CustomizationCatalog, CustomizationEntry, CustomizationKind } from '@/types/copilot'
 
 const props = defineProps<{
@@ -39,7 +40,8 @@ type SortKey = 'name' | 'interactions' | 'reach'
 const baseId = useId()
 const rankBy = ref<RankBy>('interactions')
 const activeKind = ref<CustomizationKind>('mcp')
-const filter = ref('')
+const filter = ref<string>('')
+const showCopilotDefaults = ref<boolean>(false)
 const sortKey = ref<SortKey>('interactions')
 const sortDir = ref<'asc' | 'desc'>('desc')
 
@@ -62,17 +64,36 @@ const activeCatalog = computed(
   () => orderedCatalogs.value.find((catalog) => catalog.kind === activeKind.value) ?? orderedCatalogs.value[0]
 )
 
+const catalogViews = computed(() => new Map(orderedCatalogs.value.map((catalog) => {
+  const nonDefaults = catalog.entries.filter((entry) => !isCopilotDefault(catalog.kind, entry))
+  const entries = showCopilotDefaults.value
+    ? catalog.entries
+    : nonDefaults
+  return [catalog.kind, {
+    entries,
+    defaultCount: catalog.entries.length - nonDefaults.length,
+    namedCount: entries.filter((entry) => !entry.bucket).length
+  }] as const
+})))
+
+const activeView = computed(() =>
+  activeCatalog.value ? catalogViews.value.get(activeCatalog.value.kind) : undefined
+)
+const defaultCount = computed(() =>
+  [...catalogViews.value.values()].reduce((total, view) => total + view.defaultCount, 0)
+)
+
 watch(activeKind, () => {
   filter.value = ''
 })
 
 const filteredEntries = computed(() => {
-  const catalog = activeCatalog.value
-  if (!catalog) return []
+  const view = activeView.value
+  if (!view) return []
   const query = filter.value.trim().toLowerCase()
   const rows = query
-    ? catalog.entries.filter((entry) => entry.name.toLowerCase().includes(query))
-    : catalog.entries.slice()
+    ? view.entries.filter((entry) => entry.name.toLowerCase().includes(query))
+    : view.entries.slice()
 
   const dir = sortDir.value === 'asc' ? 1 : -1
   rows.sort((a, b) => {
@@ -83,10 +104,6 @@ const filteredEntries = computed(() => {
   })
   return rows
 })
-
-const namedInView = computed(
-  () => activeCatalog.value?.entries.filter((entry) => !entry.bucket).length ?? 0
-)
 
 function metricValue(entry: CustomizationEntry, rank: RankBy): number {
   return rank === 'interactions' ? entry.interactions : props.scope === 'user' ? entry.activeDays : entry.users
@@ -101,11 +118,11 @@ function catalogByKind(kind: CustomizationKind): CustomizationCatalog | undefine
 }
 
 function topEntries(kind: CustomizationKind): CustomizationEntry[] {
-  const catalog = catalogByKind(kind)
-  if (!catalog) return []
+  const view = catalogViews.value.get(kind)
+  if (!view) return []
   const primary = rankBy.value
   const secondary: RankBy = primary === 'interactions' ? 'reach' : 'interactions'
-  return catalog.entries
+  return view.entries
     .filter((entry) => !entry.bucket)
     .sort(
       (a, b) =>
@@ -294,14 +311,17 @@ const heroCards = computed(() =>
           </header>
 
           <p v-if="card.rows.length === 0" class="empty-note">
-            No named {{ card.kind === 'mcp' ? 'MCP servers' : 'skills' }} in this export.
+            No named {{ card.kind === 'mcp' ? 'MCP servers' : 'skills' }} to rank.
           </p>
           <ol v-else class="top-list">
             <li v-for="(entry, index) in card.rows" :key="entry.name">
               <span class="top-rank">{{ index + 1 }}</span>
               <div class="top-body">
                 <div class="top-row">
-                  <span class="top-name" :title="entry.name">{{ entry.name }}</span>
+                  <span class="top-name-label">
+                    <span class="top-name" :title="entry.name">{{ entry.name }}</span>
+                    <span v-if="isCopilotDefault(card.kind, entry)" class="default-tag">By default</span>
+                  </span>
                   <span class="top-value">{{ formatNumber(metricValue(entry, rankBy)) }}</span>
                 </div>
                 <div class="top-track" aria-hidden="true">
@@ -313,7 +333,7 @@ const heroCards = computed(() =>
           </ol>
 
           <footer class="top-foot">
-            <p>{{ summary(card.kind) }}</p>
+            <p>Export totals: {{ summary(card.kind) }}</p>
             <p v-if="groupedNote(card.kind)">{{ groupedNote(card.kind) }}</p>
           </footer>
         </article>
@@ -334,12 +354,12 @@ const heroCards = computed(() =>
             @keydown="onTabKeydown($event, index)"
           >
             {{ KIND_LABEL[catalog.kind] }}
-            <span class="tab-count">{{ formatNumber(catalog.entries.filter((entry) => !entry.bucket).length) }}</span>
+            <span class="tab-count">{{ formatNumber(catalogViews.get(catalog.kind)?.namedCount ?? 0) }}</span>
           </button>
         </div>
 
         <div
-          v-if="activeCatalog"
+          v-if="activeCatalog && activeView"
           :id="panelId(activeCatalog.kind)"
           role="tabpanel"
           :aria-labelledby="tabId(activeCatalog.kind)"
@@ -355,17 +375,31 @@ const heroCards = computed(() =>
                 autocomplete="off"
               />
             </label>
-            <p class="catalog-count">
+            <label class="defaults-toggle">
+              <input v-model="showCopilotDefaults" type="checkbox" :aria-describedby="`${baseId}-defaults-note`" />
+              Show Copilot defaults
+            </label>
+            <p class="catalog-count" role="status">
               {{ formatNumber(filteredEntries.length) }}
               of
-              {{ formatNumber(activeCatalog.entries.length) }}
-              <template v-if="activeCatalog.bucketInteractions > 0">
-                · {{ formatNumber(namedInView) }} named
+              {{ formatNumber(activeView.entries.length) }}
+              <template v-if="!showCopilotDefaults && activeView.defaultCount">
+                · {{ formatNumber(activeView.defaultCount) }} {{ activeView.defaultCount === 1 ? 'default' : 'defaults' }} hidden
               </template>
             </p>
           </div>
+          <p :id="`${baseId}-defaults-note`" class="defaults-note">
+            Applies to all tabs and rankings. Defaults are identified by name; grouped activity stays visible.
+            <template v-if="defaultCount === 0"> No known Copilot defaults in this view.</template>
+          </p>
 
-          <p v-if="filteredEntries.length === 0" class="empty-note">No matches.</p>
+          <p v-if="filteredEntries.length === 0" class="empty-note">
+            <template v-if="filter.trim()">No matches.</template>
+            <template v-else-if="!showCopilotDefaults && activeView.defaultCount">
+              Only Copilot defaults in this tab. Turn on “Show Copilot defaults” to see them.
+            </template>
+            <template v-else>No entries in this tab.</template>
+          </p>
           <div
             v-else
             class="table-wrap"
@@ -395,6 +429,7 @@ const heroCards = computed(() =>
                   <th scope="row">
                     <span class="entry-name" :title="entry.name">{{ entry.name }}</span>
                     <span v-if="entry.bucket" class="bucket-tag">Grouped</span>
+                    <span v-else-if="isCopilotDefault(activeCatalog.kind, entry)" class="default-tag">By default</span>
                   </th>
                   <td data-label="Interactions">{{ formatNumber(entry.interactions) }}</td>
                   <td :data-label="reachTitle">
@@ -529,6 +564,14 @@ const heroCards = computed(() =>
   white-space: nowrap;
 }
 
+.top-name-label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 0.3rem;
+}
+
 .top-value {
   font-family: var(--font-mono);
   font-size: 0.875rem;
@@ -626,7 +669,7 @@ const heroCards = computed(() =>
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.4rem;
   flex-wrap: wrap;
 }
 
@@ -657,6 +700,30 @@ const heroCards = computed(() =>
 .catalog-count {
   font-size: 0.75rem;
   color: var(--color-text-muted);
+}
+
+.defaults-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.defaults-toggle input {
+  accent-color: var(--color-accent-blue);
+}
+
+.defaults-toggle input:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
+}
+
+.defaults-note {
+  margin-bottom: 0.85rem;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
 }
 
 .table-wrap {
@@ -764,17 +831,31 @@ td {
   color: var(--color-text-secondary);
 }
 
-.bucket-tag {
+.bucket-tag,
+.default-tag {
   display: inline-block;
   margin-left: 0.45rem;
   padding: 0.05rem 0.4rem;
   border-radius: var(--radius-sm);
-  background: rgba(210, 153, 34, 0.16);
-  color: var(--color-accent-yellow);
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   vertical-align: middle;
+  white-space: nowrap;
+}
+
+.bucket-tag {
+  background: rgba(210, 153, 34, 0.16);
+  color: var(--color-accent-yellow);
+}
+
+.default-tag {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.top-name-label .default-tag {
+  margin-left: 0;
 }
 
 .empty-note {
