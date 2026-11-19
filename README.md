@@ -17,6 +17,7 @@
 - **IDE / Feature / Language** — Usage breakdowns by IDE, feature, and language
 - **Billing Usage Page** — Optional live pull from the GitHub Billing API (`/billing`)
 - **Data Import** — Load NDJSON files exported from GitHub
+- **Customizations** — Browse skills, MCP servers, agents, plugins, and slash commands. Turn on **Show Copilot defaults** to reveal known built-ins ([sources and classification rules](COPILOT_DEFAULT.md)).
 
 ## Preview
 
